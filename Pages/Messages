@@ -1,0 +1,318 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { 
+  MessageSquare, 
+  Send,
+  Search,
+  User,
+  Truck,
+  Shield
+} from 'lucide-react';
+import { toast } from "sonner";
+import { format } from 'date-fns';
+import { ar } from 'date-fns/locale';
+import { cn } from "@/lib/utils";
+
+const senderTypes = {
+  admin: { label: 'المدير', icon: Shield, color: 'bg-indigo-100 text-indigo-700' },
+  customer: { label: 'عميل', icon: User, color: 'bg-teal-100 text-teal-700' },
+  driver: { label: 'سائق', icon: Truck, color: 'bg-cyan-100 text-cyan-700' },
+};
+
+export default function Messages() {
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [newMessage, setNewMessage] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const queryClient = useQueryClient();
+
+  const { data: messages = [], isLoading } = useQuery({
+    queryKey: ['messages'],
+    queryFn: () => base44.entities.Message.list('-created_date'),
+  });
+
+  const { data: customers = [] } = useQuery({
+    queryKey: ['customers'],
+    queryFn: () => base44.entities.Customer.list(),
+  });
+
+  const { data: drivers = [] } = useQuery({
+    queryKey: ['drivers'],
+    queryFn: () => base44.entities.Driver.list(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => base44.entities.Message.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['messages']);
+      setNewMessage('');
+      toast.success('تم إرسال الرسالة');
+    },
+  });
+
+  // Group messages by conversation (sender-receiver pair)
+  const conversations = React.useMemo(() => {
+    const convMap = new Map();
+    messages.forEach(msg => {
+      const key = [msg.sender_id, msg.receiver_id].sort().join('-');
+      if (!convMap.has(key)) {
+        convMap.set(key, {
+          id: key,
+          messages: [],
+          lastMessage: msg,
+          participants: {
+            sender: { type: msg.sender_type, id: msg.sender_id },
+            receiver: { type: msg.receiver_type, id: msg.receiver_id }
+          },
+          unreadCount: 0
+        });
+      }
+      convMap.get(key).messages.push(msg);
+      if (!msg.is_read && msg.receiver_type === 'admin') {
+        convMap.get(key).unreadCount++;
+      }
+    });
+    return Array.from(convMap.values()).sort((a, b) => 
+      new Date(b.lastMessage.created_date) - new Date(a.lastMessage.created_date)
+    );
+  }, [messages]);
+
+  const getParticipantName = (type, id) => {
+    if (type === 'admin') return 'المدير';
+    if (type === 'customer') {
+      return customers.find(c => c.id === id)?.name || 'عميل';
+    }
+    if (type === 'driver') {
+      return drivers.find(d => d.id === id)?.name || 'سائق';
+    }
+    return 'غير معروف';
+  };
+
+  const getOtherParticipant = (conv) => {
+    if (conv.participants.sender.type !== 'admin') {
+      return conv.participants.sender;
+    }
+    return conv.participants.receiver;
+  };
+
+  const handleSendMessage = () => {
+    if (!newMessage.trim() || !selectedConversation) return;
+    
+    const other = getOtherParticipant(selectedConversation);
+    createMutation.mutate({
+      sender_type: 'admin',
+      sender_id: 'admin',
+      receiver_type: other.type,
+      receiver_id: other.id,
+      content: newMessage,
+      is_read: false
+    });
+  };
+
+  const filteredConversations = conversations.filter(conv => {
+    const other = getOtherParticipant(conv);
+    const name = getParticipantName(other.type, other.id);
+    return name.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="الرسائل"
+        description={`${conversations.length} محادثة`}
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-200px)]">
+        {/* Conversations List */}
+        <Card className="border-0 shadow-sm lg:col-span-1">
+          <CardHeader className="pb-3">
+            <div className="relative">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input
+                placeholder="بحث..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pr-10"
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="h-[calc(100vh-320px)]">
+              {filteredConversations.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>لا توجد محادثات</p>
+                </div>
+              ) : (
+                <div className="space-y-1 p-2">
+                  {filteredConversations.map(conv => {
+                    const other = getOtherParticipant(conv);
+                    const typeConfig = senderTypes[other.type] || senderTypes.customer;
+                    const isSelected = selectedConversation?.id === conv.id;
+                    
+                    return (
+                      <div
+                        key={conv.id}
+                        className={cn(
+                          "flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors",
+                          isSelected 
+                            ? "bg-blue-50 border border-blue-200" 
+                            : "hover:bg-slate-50"
+                        )}
+                        onClick={() => setSelectedConversation(conv)}
+                      >
+                        <div className="relative">
+                          <Avatar className="h-10 w-10">
+                            <AvatarFallback className={cn("font-semibold", typeConfig.color)}>
+                              {getParticipantName(other.type, other.id).charAt(0)}
+                            </AvatarFallback>
+                          </Avatar>
+                          {conv.unreadCount > 0 && (
+                            <span className="absolute -top-1 -right-1 w-5 h-5 bg-rose-500 text-white text-xs rounded-full flex items-center justify-center">
+                              {conv.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-800">
+                              {getParticipantName(other.type, other.id)}
+                            </span>
+                            <Badge variant="outline" className={cn("text-xs", typeConfig.color)}>
+                              {typeConfig.label}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-slate-500 truncate">
+                            {conv.lastMessage.content}
+                          </p>
+                        </div>
+                        <span className="text-xs text-slate-400">
+                          {conv.lastMessage.created_date && format(
+                            new Date(conv.lastMessage.created_date),
+                            'hh:mm a',
+                            { locale: ar }
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        {/* Chat Area */}
+        <Card className="border-0 shadow-sm lg:col-span-2 flex flex-col">
+          {selectedConversation ? (
+            <>
+              {/* Chat Header */}
+              <CardHeader className="pb-3 border-b">
+                <div className="flex items-center gap-3">
+                  {(() => {
+                    const other = getOtherParticipant(selectedConversation);
+                    const typeConfig = senderTypes[other.type] || senderTypes.customer;
+                    return (
+                      <>
+                        <Avatar className="h-10 w-10">
+                          <AvatarFallback className={cn("font-semibold", typeConfig.color)}>
+                            {getParticipantName(other.type, other.id).charAt(0)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <h3 className="font-semibold text-slate-800">
+                            {getParticipantName(other.type, other.id)}
+                          </h3>
+                          <p className="text-xs text-slate-400">{typeConfig.label}</p>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </CardHeader>
+
+              {/* Messages */}
+              <ScrollArea className="flex-1 p-4">
+                <div className="space-y-4">
+                  {selectedConversation.messages
+                    .sort((a, b) => new Date(a.created_date) - new Date(b.created_date))
+                    .map(msg => {
+                      const isAdmin = msg.sender_type === 'admin';
+                      return (
+                        <div
+                          key={msg.id}
+                          className={cn(
+                            "flex",
+                            isAdmin ? "justify-start" : "justify-end"
+                          )}
+                        >
+                          <div className={cn(
+                            "max-w-[70%] rounded-2xl px-4 py-2",
+                            isAdmin 
+                              ? "bg-blue-600 text-white rounded-br-sm" 
+                              : "bg-slate-100 text-slate-800 rounded-bl-sm"
+                          )}>
+                            <p className="text-sm">{msg.content}</p>
+                            <p className={cn(
+                              "text-xs mt-1",
+                              isAdmin ? "text-blue-200" : "text-slate-400"
+                            )}>
+                              {msg.created_date && format(
+                                new Date(msg.created_date),
+                                'hh:mm a',
+                                { locale: ar }
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </ScrollArea>
+
+              {/* Input */}
+              <div className="p-4 border-t">
+                <div className="flex gap-2">
+                  <Textarea
+                    placeholder="اكتب رسالتك..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    className="min-h-[50px] resize-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
+                  />
+                  <Button 
+                    onClick={handleSendMessage}
+                    disabled={!newMessage.trim()}
+                    className="px-6"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-slate-400">
+              <div className="text-center">
+                <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                <p>اختر محادثة للبدء</p>
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}

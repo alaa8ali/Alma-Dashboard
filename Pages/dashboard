@@ -1,0 +1,144 @@
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import { 
+  ShoppingCart, 
+  Package, 
+  Truck, 
+  DollarSign,
+  Clock,
+  CheckCircle2,
+  TrendingUp
+} from 'lucide-react';
+import StatsCard from '../components/dashboard/StatsCard';
+import RecentOrders from '../components/dashboard/RecentOrders';
+import TopProducts from '../components/dashboard/TopProducts';
+import ActiveDrivers from '../components/dashboard/ActiveDrivers';
+import { format } from 'date-fns';
+import { ar } from 'date-fns/locale';
+
+export default function Dashboard() {
+  const today = new Date();
+  const todayStr = format(today, 'yyyy-MM-dd');
+
+  const { data: orders = [], isLoading: ordersLoading } = useQuery({
+    queryKey: ['orders'],
+    queryFn: () => base44.entities.Order.list('-created_date', 100),
+  });
+
+  const { data: orderItems = [], isLoading: itemsLoading } = useQuery({
+    queryKey: ['orderItems'],
+    queryFn: () => base44.entities.OrderItem.list('-created_date', 500),
+  });
+
+  const { data: drivers = [], isLoading: driversLoading } = useQuery({
+    queryKey: ['drivers'],
+    queryFn: () => base44.entities.Driver.list(),
+  });
+
+  const { data: products = [], isLoading: productsLoading } = useQuery({
+    queryKey: ['products'],
+    queryFn: () => base44.entities.Product.list(),
+  });
+
+  // Calculate statistics
+  const todayOrders = orders.filter(o => 
+    o.created_date?.startsWith(todayStr)
+  );
+  const activeOrders = orders.filter(o => 
+    ['pending', 'confirmed', 'preparing', 'ready', 'delivering'].includes(o.status)
+  );
+  const completedTodayOrders = todayOrders.filter(o => o.status === 'delivered');
+  const onlineDrivers = drivers.filter(d => d.is_online);
+  const todayRevenue = todayOrders
+    .filter(o => o.status !== 'cancelled')
+    .reduce((sum, o) => sum + (o.total_amount || 0), 0);
+
+  return (
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">لوحة التحكم</h1>
+          <p className="text-slate-500">
+            {format(today, 'EEEE، d MMMM yyyy', { locale: ar })}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 rounded-xl">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-sm font-medium text-emerald-700">
+            {activeOrders.length} طلبات نشطة
+          </span>
+        </div>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <StatsCard
+          title="طلبات اليوم"
+          value={todayOrders.length}
+          icon={ShoppingCart}
+          color="blue"
+        />
+        <StatsCard
+          title="طلبات نشطة"
+          value={activeOrders.length}
+          icon={Clock}
+          color="amber"
+        />
+        <StatsCard
+          title="تم التوصيل"
+          value={completedTodayOrders.length}
+          icon={CheckCircle2}
+          color="emerald"
+        />
+        <StatsCard
+          title="السائقين المتصلين"
+          value={onlineDrivers.length}
+          icon={Truck}
+          color="cyan"
+        />
+        <StatsCard
+          title="إيرادات اليوم"
+          value={`${todayRevenue.toFixed(0)} ل.س`}
+          icon={DollarSign}
+          color="purple"
+        />
+        <StatsCard
+          title="إجمالي المنتجات"
+          value={products.length}
+          icon={Package}
+          color="pink"
+        />
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Recent Orders - Takes 2 columns */}
+        <div className="lg:col-span-2">
+          <RecentOrders 
+            orders={orders} 
+            isLoading={ordersLoading} 
+          />
+        </div>
+
+        {/* Active Drivers */}
+        <div>
+          <ActiveDrivers 
+            drivers={drivers} 
+            isLoading={driversLoading} 
+          />
+        </div>
+      </div>
+
+      {/* Bottom Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TopProducts 
+          products={products}
+          orderItems={orderItems}
+          isLoading={itemsLoading || productsLoading}
+        />
+      </div>
+    </div>
+  );
+}

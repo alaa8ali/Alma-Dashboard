@@ -1,0 +1,377 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { 
+  MoreVertical, 
+  Pencil, 
+  Trash2, 
+  UtensilsCrossed,
+  Calendar,
+  AlertCircle,
+  CheckCircle2
+} from 'lucide-react';
+import { toast } from "sonner";
+import { format, isToday, isTomorrow, isPast, parseISO } from 'date-fns';
+import { ar } from 'date-fns/locale';
+import { cn } from "@/lib/utils";
+
+export default function DailyMenu() {
+  const [showSheet, setShowSheet] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [dateFilter, setDateFilter] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const queryClient = useQueryClient();
+
+  const { data: menuItems = [], isLoading } = useQuery({
+    queryKey: ['dailyMenu'],
+    queryFn: () => base44.entities.DailyMenuItem.list('-available_date'),
+  });
+
+  const { data: branches = [] } = useQuery({
+    queryKey: ['branches'],
+    queryFn: () => base44.entities.Branch.list(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => base44.entities.DailyMenuItem.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['dailyMenu']);
+      toast.success('تم إضافة الوجبة بنجاح');
+      setShowSheet(false);
+      setEditingItem(null);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.DailyMenuItem.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['dailyMenu']);
+      toast.success('تم تحديث الوجبة');
+      setShowSheet(false);
+      setEditingItem(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.DailyMenuItem.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['dailyMenu']);
+      toast.success('تم حذف الوجبة');
+    },
+  });
+
+  const filteredItems = menuItems.filter(item => {
+    if (dateFilter === 'all') return true;
+    return item.available_date === dateFilter;
+  });
+
+  const getItemStatus = (item) => {
+    const remaining = (item.quantity_available || 0) - (item.quantity_sold || 0);
+    if (!item.is_available) return { label: 'غير متاح', color: 'bg-slate-100 text-slate-600', icon: AlertCircle };
+    if (remaining <= 0) return { label: 'نفد', color: 'bg-red-100 text-red-700', icon: AlertCircle };
+    if (remaining <= 5) return { label: `متبقي ${remaining}`, color: 'bg-yellow-100 text-yellow-700', icon: AlertCircle };
+    return { label: 'متوفر', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle2 };
+  };
+
+  const getDateLabel = (dateStr) => {
+    if (!dateStr) return '-';
+    const date = parseISO(dateStr);
+    if (isToday(date)) return 'اليوم';
+    if (isTomorrow(date)) return 'غداً';
+    return format(date, 'EEEE d MMMM', { locale: ar });
+  };
+
+  const getBranchName = (branchId) => {
+    return branches.find(b => b.id === branchId)?.name || '-';
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+      name: formData.get('name'),
+      description: formData.get('description'),
+      price: parseFloat(formData.get('price')) || 0,
+      available_date: formData.get('available_date'),
+      quantity_available: parseInt(formData.get('quantity_available')) || 0,
+      branch_id: formData.get('branch_id') || null,
+      is_available: editingItem?.is_available ?? true,
+      quantity_sold: editingItem?.quantity_sold || 0,
+    };
+
+    if (editingItem) {
+      updateMutation.mutate({ id: editingItem.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  // Get unique dates for filter
+  const availableDates = [...new Set(menuItems.map(item => item.available_date).filter(Boolean))].sort().reverse();
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="القائمة اليومية"
+        description="إدارة وجبات اليوم"
+        action={() => {
+          setEditingItem(null);
+          setShowSheet(true);
+        }}
+        actionLabel="إضافة وجبة"
+      />
+
+      {/* Date Filter */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-3">
+            <Calendar className="w-5 h-5 text-slate-400" />
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">جميع التواريخ</SelectItem>
+                <SelectItem value={format(new Date(), 'yyyy-MM-dd')}>اليوم</SelectItem>
+                {availableDates.map(date => (
+                  <SelectItem key={date} value={date}>
+                    {getDateLabel(date)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="border-0 shadow-sm animate-pulse">
+              <CardContent className="p-6">
+                <div className="h-6 bg-slate-200 rounded w-2/3 mb-3" />
+                <div className="h-4 bg-slate-200 rounded w-1/2" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : filteredItems.length === 0 ? (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="py-16 text-center text-slate-400">
+            <UtensilsCrossed className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>لا توجد وجبات لهذا اليوم</p>
+            <Button className="mt-4" onClick={() => setShowSheet(true)}>
+              إضافة وجبة جديدة
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredItems.map((item) => {
+            const status = getItemStatus(item);
+            const remaining = (item.quantity_available || 0) - (item.quantity_sold || 0);
+            const progress = item.quantity_available > 0 
+              ? ((item.quantity_sold || 0) / item.quantity_available) * 100 
+              : 0;
+
+            return (
+              <Card 
+                key={item.id}
+                className={cn(
+                  "border-0 shadow-sm hover:shadow-md transition-all group",
+                  !item.is_available && "opacity-60"
+                )}
+              >
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={cn(
+                      "w-12 h-12 rounded-xl flex items-center justify-center",
+                      "bg-gradient-to-br from-amber-500 to-orange-600"
+                    )}>
+                      <UtensilsCrossed className="w-6 h-6 text-white" />
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => {
+                          setEditingItem(item);
+                          setShowSheet(true);
+                        }}>
+                          <Pencil className="w-4 h-4 ml-2" />
+                          تعديل
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          updateMutation.mutate({ 
+                            id: item.id, 
+                            data: { is_available: !item.is_available } 
+                          });
+                        }}>
+                          {item.is_available ? 'إيقاف' : 'تفعيل'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          className="text-red-600"
+                          onClick={() => deleteMutation.mutate(item.id)}
+                        >
+                          <Trash2 className="w-4 h-4 ml-2" />
+                          حذف
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  <h3 className="font-semibold text-slate-800 mb-1">
+                    {item.name}
+                  </h3>
+                  {item.description && (
+                    <p className="text-sm text-slate-500 line-clamp-2 mb-3">
+                      {item.description}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-between mb-3">
+                   <span className="text-2xl font-bold text-amber-600">
+                     {item.price?.toFixed(2)} ل.س
+                   </span>
+                    <Badge className={cn("font-medium", status.color)}>
+                      {status.label}
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-500">المباع</span>
+                      <span className="font-medium">{item.quantity_sold || 0} / {item.quantity_available}</span>
+                    </div>
+                    <Progress value={progress} className="h-2" />
+                  </div>
+
+                  <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                    <span>{getDateLabel(item.available_date)}</span>
+                    <span>{getBranchName(item.branch_id)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add/Edit Sheet */}
+      <Sheet open={showSheet} onOpenChange={setShowSheet}>
+        <SheetContent side="left" className="w-full sm:max-w-lg" dir="rtl">
+          <SheetHeader>
+            <SheetTitle>
+              {editingItem ? 'تعديل الوجبة' : 'إضافة وجبة جديدة'}
+            </SheetTitle>
+          </SheetHeader>
+          <form onSubmit={handleSubmit} className="space-y-4 mt-6">
+            <div className="space-y-2">
+              <Label htmlFor="name">اسم الوجبة</Label>
+              <Input 
+                id="name" 
+                name="name" 
+                defaultValue={editingItem?.name}
+                required 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">الوصف</Label>
+              <Textarea 
+                id="description" 
+                name="description"
+                defaultValue={editingItem?.description}
+                rows={2}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="price">السعر</Label>
+                <Input 
+                  id="price" 
+                  name="price" 
+                  type="number"
+                  step="0.01"
+                  defaultValue={editingItem?.price}
+                  required 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quantity_available">الكمية المتاحة</Label>
+                <Input 
+                  id="quantity_available" 
+                  name="quantity_available" 
+                  type="number"
+                  defaultValue={editingItem?.quantity_available}
+                  required 
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="available_date">تاريخ التوفر</Label>
+              <Input 
+                id="available_date" 
+                name="available_date" 
+                type="date"
+                defaultValue={editingItem?.available_date || format(new Date(), 'yyyy-MM-dd')}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="branch_id">الفرع</Label>
+              <Select name="branch_id" defaultValue={editingItem?.branch_id}>
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر الفرع" />
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <SheetFooter className="mt-6">
+              <Button type="submit" className="w-full">
+                {editingItem ? 'حفظ التغييرات' : 'إضافة الوجبة'}
+              </Button>
+            </SheetFooter>
+          </form>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}

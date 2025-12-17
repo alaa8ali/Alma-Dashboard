@@ -1,0 +1,412 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { 
+  MoreVertical, 
+  Pencil, 
+  Trash2, 
+  Tag,
+  Percent,
+  DollarSign,
+  Calendar,
+  Package,
+  Eye,
+  EyeOff
+} from 'lucide-react';
+import { toast } from "sonner";
+import { format, isAfter, isBefore, isToday } from 'date-fns';
+import { ar } from 'date-fns/locale';
+import { cn } from "@/lib/utils";
+
+export default function Offers() {
+  const [showSheet, setShowSheet] = useState(false);
+  const [editingOffer, setEditingOffer] = useState(null);
+  const queryClient = useQueryClient();
+
+  const { data: offers = [], isLoading } = useQuery({
+    queryKey: ['offers'],
+    queryFn: () => base44.entities.Offer.list('-created_date'),
+  });
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => base44.entities.Category.list(),
+  });
+
+  const { data: products = [] } = useQuery({
+    queryKey: ['products'],
+    queryFn: () => base44.entities.Product.list(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => base44.entities.Offer.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['offers']);
+      toast.success('تم إضافة العرض بنجاح');
+      setShowSheet(false);
+      setEditingOffer(null);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Offer.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['offers']);
+      toast.success('تم تحديث العرض');
+      setShowSheet(false);
+      setEditingOffer(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.Offer.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['offers']);
+      toast.success('تم حذف العرض');
+    },
+  });
+
+  const getOfferStatus = (offer) => {
+    const today = new Date();
+    const startDate = offer.start_date ? new Date(offer.start_date) : null;
+    const endDate = offer.end_date ? new Date(offer.end_date) : null;
+
+    if (!offer.is_active) return { label: 'معطل', color: 'bg-slate-100 text-slate-600' };
+    if (endDate && isBefore(endDate, today)) return { label: 'منتهي', color: 'bg-red-100 text-red-700' };
+    if (startDate && isAfter(startDate, today)) return { label: 'قادم', color: 'bg-blue-100 text-blue-700' };
+    return { label: 'نشط', color: 'bg-emerald-100 text-emerald-700' };
+  };
+
+  const getAppliesTo = (offer) => {
+    if (offer.applies_to === 'all') return 'جميع المنتجات';
+    if (offer.applies_to === 'category') {
+      const cat = categories.find(c => c.id === offer.category_id);
+      return cat?.name || 'فئة محددة';
+    }
+    if (offer.applies_to === 'product') {
+      const prod = products.find(p => p.id === offer.product_id);
+      return prod?.name || 'منتج محدد';
+    }
+    return '-';
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+      title: formData.get('title'),
+      description: formData.get('description'),
+      discount_type: formData.get('discount_type'),
+      discount_value: parseFloat(formData.get('discount_value')) || 0,
+      start_date: formData.get('start_date') || null,
+      end_date: formData.get('end_date') || null,
+      applies_to: formData.get('applies_to'),
+      category_id: formData.get('category_id') || null,
+      product_id: formData.get('product_id') || null,
+      is_active: editingOffer?.is_active ?? true,
+    };
+
+    if (editingOffer) {
+      updateMutation.mutate({ id: editingOffer.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const [formAppliesTo, setFormAppliesTo] = useState('all');
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="إدارة العروض"
+        description={`${offers.length} عرض`}
+        action={() => {
+          setEditingOffer(null);
+          setFormAppliesTo('all');
+          setShowSheet(true);
+        }}
+        actionLabel="إضافة عرض"
+      />
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i} className="border-0 shadow-sm animate-pulse">
+              <CardContent className="p-6">
+                <div className="h-6 bg-slate-200 rounded w-2/3 mb-3" />
+                <div className="h-4 bg-slate-200 rounded w-1/2" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : offers.length === 0 ? (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="py-16 text-center text-slate-400">
+            <Tag className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>لا توجد عروض</p>
+            <Button className="mt-4" onClick={() => setShowSheet(true)}>
+              إضافة أول عرض
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {offers.map((offer) => {
+            const status = getOfferStatus(offer);
+            return (
+              <Card 
+                key={offer.id}
+                className={cn(
+                  "border-0 shadow-sm hover:shadow-md transition-all group",
+                  !offer.is_active && "opacity-60"
+                )}
+              >
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={cn(
+                      "w-12 h-12 rounded-xl flex items-center justify-center",
+                      "bg-gradient-to-br from-pink-500 to-rose-600"
+                    )}>
+                      {offer.discount_type === 'percentage' ? (
+                        <Percent className="w-6 h-6 text-white" />
+                      ) : (
+                        <DollarSign className="w-6 h-6 text-white" />
+                      )}
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => {
+                          setEditingOffer(offer);
+                          setFormAppliesTo(offer.applies_to || 'all');
+                          setShowSheet(true);
+                        }}>
+                          <Pencil className="w-4 h-4 ml-2" />
+                          تعديل
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          updateMutation.mutate({ 
+                            id: offer.id, 
+                            data: { is_active: !offer.is_active } 
+                          });
+                        }}>
+                          {offer.is_active ? (
+                            <><EyeOff className="w-4 h-4 ml-2" /> تعطيل</>
+                          ) : (
+                            <><Eye className="w-4 h-4 ml-2" /> تفعيل</>
+                          )}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          className="text-red-600"
+                          onClick={() => deleteMutation.mutate(offer.id)}
+                        >
+                          <Trash2 className="w-4 h-4 ml-2" />
+                          حذف
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  <h3 className="font-semibold text-slate-800 mb-1">
+                    {offer.title}
+                  </h3>
+
+                  <div className="flex items-center gap-2 mb-3">
+                   <Badge className={cn("font-bold", status.color)}>
+                     {status.label}
+                   </Badge>
+                   <span className="text-2xl font-bold text-pink-600">
+                     {offer.discount_value}
+                     {offer.discount_type === 'percentage' ? '%' : ' ل.س'}
+                   </span>
+                  </div>
+
+                  <div className="space-y-2 text-sm text-slate-500">
+                    <div className="flex items-center gap-2">
+                      <Package className="w-4 h-4" />
+                      <span>{getAppliesTo(offer)}</span>
+                    </div>
+                    {(offer.start_date || offer.end_date) && (
+                      <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4" />
+                        <span>
+                          {offer.start_date && format(new Date(offer.start_date), 'd MMM', { locale: ar })}
+                          {offer.start_date && offer.end_date && ' - '}
+                          {offer.end_date && format(new Date(offer.end_date), 'd MMM', { locale: ar })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add/Edit Sheet */}
+      <Sheet open={showSheet} onOpenChange={setShowSheet}>
+        <SheetContent side="left" className="w-full sm:max-w-lg overflow-y-auto" dir="rtl">
+          <SheetHeader>
+            <SheetTitle>
+              {editingOffer ? 'تعديل العرض' : 'إضافة عرض جديد'}
+            </SheetTitle>
+          </SheetHeader>
+          <form onSubmit={handleSubmit} className="space-y-4 mt-6">
+            <div className="space-y-2">
+              <Label htmlFor="title">عنوان العرض</Label>
+              <Input 
+                id="title" 
+                name="title" 
+                defaultValue={editingOffer?.title}
+                required 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">الوصف</Label>
+              <Textarea 
+                id="description" 
+                name="description"
+                defaultValue={editingOffer?.description}
+                rows={2}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="discount_type">نوع الخصم</Label>
+                <Select name="discount_type" defaultValue={editingOffer?.discount_type || 'percentage'}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="percentage">نسبة مئوية (%)</SelectItem>
+                    <SelectItem value="fixed">قيمة ثابتة (ل.س)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="discount_value">قيمة الخصم</Label>
+                <Input 
+                  id="discount_value" 
+                  name="discount_value" 
+                  type="number"
+                  step="0.01"
+                  defaultValue={editingOffer?.discount_value}
+                  required 
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="start_date">تاريخ البداية</Label>
+                <Input 
+                  id="start_date" 
+                  name="start_date" 
+                  type="date"
+                  defaultValue={editingOffer?.start_date}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="end_date">تاريخ النهاية</Label>
+                <Input 
+                  id="end_date" 
+                  name="end_date" 
+                  type="date"
+                  defaultValue={editingOffer?.end_date}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>ينطبق على</Label>
+              <Select 
+                name="applies_to" 
+                defaultValue={editingOffer?.applies_to || 'all'}
+                onValueChange={setFormAppliesTo}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">جميع المنتجات</SelectItem>
+                  <SelectItem value="category">فئة محددة</SelectItem>
+                  <SelectItem value="product">منتج محدد</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {formAppliesTo === 'category' && (
+              <div className="space-y-2">
+                <Label>الفئة</Label>
+                <Select name="category_id" defaultValue={editingOffer?.category_id}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر الفئة" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map(cat => (
+                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {formAppliesTo === 'product' && (
+              <div className="space-y-2">
+                <Label>المنتج</Label>
+                <Select name="product_id" defaultValue={editingOffer?.product_id}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="اختر المنتج" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products.map(prod => (
+                      <SelectItem key={prod.id} value={prod.id}>{prod.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <SheetFooter className="mt-6">
+              <Button type="submit" className="w-full">
+                {editingOffer ? 'حفظ التغييرات' : 'إضافة العرض'}
+              </Button>
+            </SheetFooter>
+          </form>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}

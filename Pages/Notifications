@@ -1,0 +1,274 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { 
+  Bell, 
+  Send,
+  ShoppingCart,
+  Tag,
+  Settings,
+  MessageSquare,
+  Trash2,
+  CheckCircle2
+} from 'lucide-react';
+import { toast } from "sonner";
+import { format } from 'date-fns';
+import { ar } from 'date-fns/locale';
+import { cn } from "@/lib/utils";
+
+const notificationTypes = [
+  { value: 'order', label: 'طلب', icon: ShoppingCart, color: 'bg-blue-100 text-blue-700' },
+  { value: 'offer', label: 'عرض', icon: Tag, color: 'bg-pink-100 text-pink-700' },
+  { value: 'system', label: 'نظام', icon: Settings, color: 'bg-slate-100 text-slate-700' },
+  { value: 'message', label: 'رسالة', icon: MessageSquare, color: 'bg-purple-100 text-purple-700' },
+];
+
+const recipientTypes = [
+  { value: 'all', label: 'الكل' },
+  { value: 'customer', label: 'عملاء' },
+  { value: 'driver', label: 'سائقين' },
+  { value: 'worker', label: 'عمال' },
+];
+
+export default function Notifications() {
+  const [showDialog, setShowDialog] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
+  const queryClient = useQueryClient();
+
+  const { data: notifications = [], isLoading } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => base44.entities.Notification.list('-created_date'),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => base44.entities.Notification.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['notifications']);
+      toast.success('تم إرسال الإشعار بنجاح');
+      setShowDialog(false);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.Notification.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['notifications']);
+      toast.success('تم حذف الإشعار');
+    },
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+      title: formData.get('title'),
+      message: formData.get('message'),
+      type: formData.get('type'),
+      recipient_type: formData.get('recipient_type'),
+      is_read: false,
+    };
+    createMutation.mutate(data);
+  };
+
+  const filteredNotifications = notifications.filter(n => 
+    typeFilter === 'all' || n.type === typeFilter
+  );
+
+  const getTypeConfig = (type) => {
+    return notificationTypes.find(t => t.value === type) || notificationTypes[2];
+  };
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="الإشعارات"
+        description={`${notifications.length} إشعار`}
+        action={() => setShowDialog(true)}
+        actionLabel="إرسال إشعار"
+        actionIcon={Send}
+      />
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {notificationTypes.map(type => {
+          const count = notifications.filter(n => n.type === type.value).length;
+          return (
+            <Card 
+              key={type.value} 
+              className={cn(
+                "border-0 shadow-sm cursor-pointer transition-all",
+                typeFilter === type.value && "ring-2 ring-blue-500"
+              )}
+              onClick={() => setTypeFilter(typeFilter === type.value ? 'all' : type.value)}
+            >
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", type.color)}>
+                  <type.icon className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-slate-800">{count}</p>
+                  <p className="text-xs text-slate-500">{type.label}</p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Notifications List */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-semibold">سجل الإشعارات</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-3">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="animate-pulse flex items-start gap-4 p-4 rounded-lg bg-slate-50">
+                  <div className="w-10 h-10 rounded-lg bg-slate-200" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-slate-200 rounded w-1/3" />
+                    <div className="h-3 bg-slate-200 rounded w-2/3" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredNotifications.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <Bell className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>لا توجد إشعارات</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredNotifications.map((notification) => {
+                const typeConfig = getTypeConfig(notification.type);
+                return (
+                  <div 
+                    key={notification.id} 
+                    className={cn(
+                      "flex items-start gap-4 p-4 rounded-xl transition-colors",
+                      notification.is_read ? "bg-slate-50/50" : "bg-blue-50/50 border-r-4 border-blue-500"
+                    )}
+                  >
+                    <div className={cn(
+                      "w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0",
+                      typeConfig.color
+                    )}>
+                      <typeConfig.icon className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-semibold text-slate-800">{notification.title}</h4>
+                        <Badge variant="outline" className={cn("text-xs", typeConfig.color)}>
+                          {typeConfig.label}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-slate-600 mb-2">{notification.message}</p>
+                      <div className="flex items-center gap-4 text-xs text-slate-400">
+                        <span>
+                          {notification.created_date && format(
+                            new Date(notification.created_date), 
+                            'd MMM yyyy, hh:mm a', 
+                            { locale: ar }
+                          )}
+                        </span>
+                        <span>
+                          {recipientTypes.find(r => r.value === notification.recipient_type)?.label || '-'}
+                        </span>
+                      </div>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-slate-400 hover:text-red-500"
+                      onClick={() => deleteMutation.mutate(notification.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Send Notification Dialog */}
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>إرسال إشعار جديد</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="title">عنوان الإشعار</Label>
+              <Input id="title" name="title" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="message">نص الإشعار</Label>
+              <Textarea id="message" name="message" rows={3} required />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>نوع الإشعار</Label>
+                <Select name="type" defaultValue="system">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {notificationTypes.map(t => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>إرسال إلى</Label>
+                <Select name="recipient_type" defaultValue="all">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {recipientTypes.map(r => (
+                      <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter className="mt-6">
+              <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>
+                إلغاء
+              </Button>
+              <Button type="submit" className="gap-2">
+                <Send className="w-4 h-4" />
+                إرسال
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

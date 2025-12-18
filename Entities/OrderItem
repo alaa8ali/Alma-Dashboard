@@ -1,0 +1,44 @@
+{
+  "name": "OrderItem",
+  "type": "object",
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "description": "\u0645\u0639\u0631\u0641 \u0627\u0644\u0637\u0644\u0628"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "\u0645\u0639\u0631\u0641 \u0627\u0644\u0645\u0646\u062a\u062c"
+    },
+    "variant_id": {
+      "type": "string",
+      "description": "\u0645\u0639\u0631\u0641 \u0627\u0644\u0645\u062a\u063a\u064a\u0631"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "\u0627\u0633\u0645 \u0627\u0644\u0645\u0646\u062a\u062c"
+    },
+    "variant_name": {
+      "type": "string",
+      "description": "\u0627\u0633\u0645 \u0627\u0644\u0645\u062a\u063a\u064a\u0631"
+    },
+    "quantity": {
+      "type": "number",
+      "description": "\u0627\u0644\u0643\u0645\u064a\u0629"
+    },
+    "unit_price": {
+      "type": "number",
+      "description": "\u0633\u0639\u0631 \u0627\u0644\u0648\u062d\u062f\u0629"
+    },
+    "total_price": {
+      "type": "number",
+      "description": "\u0627\u0644\u0633\u0639\u0631 \u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a"
+    }
+  },
+  "required": [
+    "order_id",
+    "product_name",
+    "quantity",
+    "unit_price"
+  ]
+}

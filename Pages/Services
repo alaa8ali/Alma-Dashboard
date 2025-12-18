@@ -1,0 +1,452 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import DataTable from '../components/shared/DataTable';
+import StatusBadge from '../components/shared/StatusBadge';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { 
+  MoreVertical, 
+  Pencil, 
+  Trash2, 
+  Wrench,
+  Clock,
+  DollarSign,
+  User,
+  Phone,
+  Calendar,
+  Search
+} from 'lucide-react';
+import { toast } from "sonner";
+import { format } from 'date-fns';
+import { ar } from 'date-fns/locale';
+import { cn } from "@/lib/utils";
+
+const priceTypes = [
+  { value: 'fixed', label: 'سعر ثابت' },
+  { value: 'hourly', label: 'بالساعة' },
+  { value: 'custom', label: 'حسب الطلب' },
+];
+
+export default function Services() {
+  const [activeTab, setActiveTab] = useState('services');
+  const [showServiceSheet, setShowServiceSheet] = useState(false);
+  const [editingService, setEditingService] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const queryClient = useQueryClient();
+
+  const { data: services = [], isLoading: servicesLoading } = useQuery({
+    queryKey: ['services'],
+    queryFn: () => base44.entities.Service.list('-created_date'),
+  });
+
+  const { data: serviceRequests = [], isLoading: requestsLoading } = useQuery({
+    queryKey: ['serviceRequests'],
+    queryFn: () => base44.entities.ServiceRequest.list('-created_date'),
+  });
+
+  const { data: workers = [] } = useQuery({
+    queryKey: ['workers'],
+    queryFn: () => base44.entities.Worker.list(),
+  });
+
+  const createServiceMutation = useMutation({
+    mutationFn: (data) => base44.entities.Service.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['services']);
+      toast.success('تم إضافة الخدمة بنجاح');
+      setShowServiceSheet(false);
+      setEditingService(null);
+    },
+  });
+
+  const updateServiceMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Service.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['services']);
+      toast.success('تم تحديث الخدمة');
+      setShowServiceSheet(false);
+      setEditingService(null);
+    },
+  });
+
+  const deleteServiceMutation = useMutation({
+    mutationFn: (id) => base44.entities.Service.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['services']);
+      toast.success('تم حذف الخدمة');
+    },
+  });
+
+  const updateRequestMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.ServiceRequest.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['serviceRequests']);
+      toast.success('تم تحديث الطلب');
+    },
+  });
+
+  const handleServiceSubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+      name: formData.get('name'),
+      description: formData.get('description'),
+      price: parseFloat(formData.get('price')) || 0,
+      price_type: formData.get('price_type'),
+      category: formData.get('category'),
+      is_active: editingService?.is_active ?? true,
+    };
+
+    if (editingService) {
+      updateServiceMutation.mutate({ id: editingService.id, data });
+    } else {
+      createServiceMutation.mutate(data);
+    }
+  };
+
+  const filteredServices = services.filter(s => 
+    s.name?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredRequests = serviceRequests.filter(r =>
+    r.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    r.service_name?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const serviceColumns = [
+    {
+      header: 'الخدمة',
+      cell: (row) => (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
+            <Wrench className="w-5 h-5 text-indigo-600" />
+          </div>
+          <div>
+            <p className="font-medium text-slate-800">{row.name}</p>
+            <p className="text-xs text-slate-400">{row.category || '-'}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: 'السعر',
+      cell: (row) => (
+        <div className="flex items-center gap-1">
+          <span className="font-semibold text-slate-800">
+            {row.price?.toFixed(2)} ل.س
+          </span>
+          <span className="text-xs text-slate-400">
+            / {priceTypes.find(p => p.value === row.price_type)?.label || '-'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      header: 'الحالة',
+      cell: (row) => (
+        <Badge variant="outline" className={cn(
+          row.is_active 
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+            : 'bg-slate-50 text-slate-500'
+        )}>
+          {row.is_active ? 'متاحة' : 'متوقفة'}
+        </Badge>
+      ),
+    },
+    {
+      header: '',
+      cell: (row) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreVertical className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => {
+              setEditingService(row);
+              setShowServiceSheet(true);
+            }}>
+              <Pencil className="w-4 h-4 ml-2" />
+              تعديل
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => {
+              updateServiceMutation.mutate({ 
+                id: row.id, 
+                data: { is_active: !row.is_active } 
+              });
+            }}>
+              {row.is_active ? 'إيقاف' : 'تفعيل'}
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              className="text-red-600"
+              onClick={() => deleteServiceMutation.mutate(row.id)}
+            >
+              <Trash2 className="w-4 h-4 ml-2" />
+              حذف
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const requestColumns = [
+    {
+      header: 'الخدمة',
+      cell: (row) => (
+        <span className="font-medium">{row.service_name || '-'}</span>
+      ),
+    },
+    {
+      header: 'العميل',
+      cell: (row) => (
+        <div>
+          <p className="font-medium text-slate-800">{row.customer_name}</p>
+          <p className="text-xs text-slate-400" dir="ltr">{row.customer_phone}</p>
+        </div>
+      ),
+    },
+    {
+      header: 'الموعد',
+      cell: (row) => (
+        <div className="text-sm">
+          {row.scheduled_date && (
+            <p>{format(new Date(row.scheduled_date), 'd MMM', { locale: ar })}</p>
+          )}
+          {row.scheduled_time && (
+            <p className="text-xs text-slate-400">{row.scheduled_time}</p>
+          )}
+        </div>
+      ),
+    },
+    {
+      header: 'السعر',
+      cell: (row) => (
+        <span className="font-semibold">{row.total_price?.toFixed(2) || '0.00'} ل.س</span>
+      ),
+    },
+    {
+      header: 'الحالة',
+      cell: (row) => <StatusBadge status={row.status} />,
+    },
+    {
+      header: 'العامل',
+      cell: (row) => {
+        const worker = workers.find(w => w.id === row.worker_id);
+        return worker ? (
+          <span className="text-sm">{worker.name}</span>
+        ) : (
+          <Select 
+            value={row.worker_id || ''} 
+            onValueChange={(value) => {
+              updateRequestMutation.mutate({ id: row.id, data: { worker_id: value } });
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="تعيين" />
+            </SelectTrigger>
+            <SelectContent>
+              {workers.filter(w => w.is_active).map(w => (
+                <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        );
+      },
+    },
+    {
+      header: '',
+      cell: (row) => (
+        <Select 
+          value={row.status} 
+          onValueChange={(value) => {
+            updateRequestMutation.mutate({ id: row.id, data: { status: value } });
+          }}
+        >
+          <SelectTrigger className="h-8 w-28 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pending">بانتظار</SelectItem>
+            <SelectItem value="confirmed">مؤكد</SelectItem>
+            <SelectItem value="in_progress">قيد التنفيذ</SelectItem>
+            <SelectItem value="completed">مكتمل</SelectItem>
+            <SelectItem value="cancelled">ملغي</SelectItem>
+          </SelectContent>
+        </Select>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="الخدمات"
+        description={`${services.length} خدمة • ${serviceRequests.filter(r => r.status === 'pending').length} طلب جديد`}
+        action={() => {
+          setEditingService(null);
+          setShowServiceSheet(true);
+        }}
+        actionLabel="إضافة خدمة"
+      />
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="bg-slate-100">
+          <TabsTrigger value="services">الخدمات</TabsTrigger>
+          <TabsTrigger value="requests">
+            طلبات الخدمات
+            {serviceRequests.filter(r => r.status === 'pending').length > 0 && (
+              <Badge className="mr-2 bg-rose-500 text-white text-xs">
+                {serviceRequests.filter(r => r.status === 'pending').length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="services" className="mt-4 space-y-4">
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-4">
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="بحث عن خدمة..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pr-10"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <DataTable 
+            columns={serviceColumns}
+            data={filteredServices}
+            isLoading={servicesLoading}
+            emptyMessage="لا توجد خدمات"
+          />
+        </TabsContent>
+
+        <TabsContent value="requests" className="mt-4 space-y-4">
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-4">
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="بحث عن طلب..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pr-10"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <DataTable 
+            columns={requestColumns}
+            data={filteredRequests}
+            isLoading={requestsLoading}
+            emptyMessage="لا توجد طلبات"
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* Add/Edit Service Sheet */}
+      <Sheet open={showServiceSheet} onOpenChange={setShowServiceSheet}>
+        <SheetContent side="left" className="w-full sm:max-w-lg" dir="rtl">
+          <SheetHeader>
+            <SheetTitle>
+              {editingService ? 'تعديل الخدمة' : 'إضافة خدمة جديدة'}
+            </SheetTitle>
+          </SheetHeader>
+          <form onSubmit={handleServiceSubmit} className="space-y-4 mt-6">
+            <div className="space-y-2">
+              <Label htmlFor="name">اسم الخدمة</Label>
+              <Input 
+                id="name" 
+                name="name" 
+                defaultValue={editingService?.name}
+                required 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">الوصف</Label>
+              <Textarea 
+                id="description" 
+                name="description"
+                defaultValue={editingService?.description}
+                rows={2}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="price">السعر</Label>
+                <Input 
+                  id="price" 
+                  name="price" 
+                  type="number"
+                  step="0.01"
+                  defaultValue={editingService?.price}
+                  required 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="price_type">نوع التسعير</Label>
+                <Select name="price_type" defaultValue={editingService?.price_type || 'fixed'}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {priceTypes.map(t => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="category">التصنيف</Label>
+              <Input 
+                id="category" 
+                name="category"
+                defaultValue={editingService?.category}
+              />
+            </div>
+            <SheetFooter className="mt-6">
+              <Button type="submit" className="w-full">
+                {editingService ? 'حفظ التغييرات' : 'إضافة الخدمة'}
+              </Button>
+            </SheetFooter>
+          </form>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}

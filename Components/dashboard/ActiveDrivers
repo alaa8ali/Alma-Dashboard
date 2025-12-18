@@ -1,0 +1,90 @@
+import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Truck, Bike, Car, Circle } from 'lucide-react';
+import { cn } from "@/lib/utils";
+
+const vehicleIcons = {
+  motorcycle: Bike,
+  car: Car,
+  bicycle: Bike
+};
+
+export default function ActiveDrivers({ drivers = [], isLoading }) {
+  const onlineDrivers = drivers.filter(d => d.is_online);
+
+  if (isLoading) {
+    return (
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-semibold">السائقين المتصلين</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="animate-pulse flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-slate-200" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 bg-slate-200 rounded w-1/2" />
+                  <div className="h-3 bg-slate-200 rounded w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader className="pb-3 flex flex-row items-center justify-between">
+        <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <Truck className="w-5 h-5 text-cyan-500" />
+          السائقين المتصلين
+        </CardTitle>
+        <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
+          {onlineDrivers.length} متصل
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        {onlineDrivers.length === 0 ? (
+          <div className="text-center py-8 text-slate-400">
+            <Truck className="w-12 h-12 mx-auto mb-2 opacity-50" />
+            <p>لا يوجد سائقين متصلين حالياً</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {onlineDrivers.map((driver) => {
+              const VehicleIcon = vehicleIcons[driver.vehicle_type] || Truck;
+              return (
+                <div 
+                  key={driver.id} 
+                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  <div className="relative">
+                    <Avatar className="h-10 w-10">
+                      <AvatarFallback className="bg-cyan-100 text-cyan-700 font-semibold">
+                        {driver.name?.charAt(0) || '?'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <Circle className="absolute -bottom-0.5 -right-0.5 w-3 h-3 text-emerald-500 fill-emerald-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-slate-800 truncate">{driver.name}</p>
+                    <p className="text-xs text-slate-400">{driver.phone}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-slate-400">
+                    <VehicleIcon className="w-4 h-4" />
+                    <span className="text-xs">{driver.vehicle_number || '-'}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

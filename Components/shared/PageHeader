@@ -1,0 +1,35 @@
+import React from 'react';
+import { Button } from "@/components/ui/button";
+import { Plus } from 'lucide-react';
+
+export default function PageHeader({ 
+  title, 
+  description, 
+  action, 
+  actionLabel = "إضافة جديد",
+  actionIcon: ActionIcon = Plus,
+  children 
+}) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
+        {description && (
+          <p className="text-slate-500 mt-1">{description}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        {children}
+        {action && (
+          <Button 
+            onClick={action}
+            className="bg-blue-600 hover:bg-blue-700 gap-2"
+          >
+            <ActionIcon className="w-4 h-4" />
+            {actionLabel}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}

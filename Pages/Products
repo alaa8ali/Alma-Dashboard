@@ -1,0 +1,458 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import DataTable from '../components/shared/DataTable';
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { 
+  Search, 
+  MoreVertical, 
+  Pencil, 
+  Trash2, 
+  Package,
+  Eye,
+  EyeOff,
+  Plus,
+  Percent
+} from 'lucide-react';
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+export default function Products() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [showDialog, setShowDialog] = useState(false);
+  const [showBulkDialog, setShowBulkDialog] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [bulkAction, setBulkAction] = useState({ type: '', value: 0, category: 'all' });
+  const queryClient = useQueryClient();
+
+  const { data: products = [], isLoading } = useQuery({
+    queryKey: ['products'],
+    queryFn: () => base44.entities.Product.list('-created_date'),
+  });
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => base44.entities.Category.list(),
+  });
+
+  const { data: variants = [] } = useQuery({
+    queryKey: ['variants'],
+    queryFn: () => base44.entities.ProductVariant.list(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => base44.entities.Product.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['products']);
+      toast.success('تم إضافة المنتج بنجاح');
+      setShowDialog(false);
+      setEditingProduct(null);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Product.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['products']);
+      toast.success('تم تحديث المنتج بنجاح');
+      setShowDialog(false);
+      setEditingProduct(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.Product.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['products']);
+      toast.success('تم حذف المنتج بنجاح');
+    },
+  });
+
+  const filteredProducts = products.filter(product => {
+    const matchesSearch = product.name?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = categoryFilter === 'all' || product.category_id === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  const getCategoryName = (categoryId) => {
+    return categories.find(c => c.id === categoryId)?.name || '-';
+  };
+
+  const getProductVariants = (productId) => {
+    return variants.filter(v => v.product_id === productId);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+      name: formData.get('name'),
+      description: formData.get('description'),
+      base_price: parseFloat(formData.get('base_price')) || 0,
+      category_id: formData.get('category_id'),
+      stock_quantity: parseInt(formData.get('stock_quantity')) || 0,
+      is_active: editingProduct?.is_active ?? true,
+    };
+
+    if (editingProduct) {
+      updateMutation.mutate({ id: editingProduct.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const handleBulkPriceUpdate = async () => {
+    const targetProducts = bulkAction.category === 'all' 
+      ? products 
+      : products.filter(p => p.category_id === bulkAction.category);
+
+    for (const product of targetProducts) {
+      let newPrice = product.base_price;
+      if (bulkAction.type === 'percentage') {
+        newPrice = product.base_price * (1 + bulkAction.value / 100);
+      } else if (bulkAction.type === 'fixed') {
+        newPrice = product.base_price + bulkAction.value;
+      }
+      await base44.entities.Product.update(product.id, { base_price: Math.max(0, newPrice) });
+    }
+
+    queryClient.invalidateQueries(['products']);
+    toast.success(`تم تحديث أسعار ${targetProducts.length} منتج`);
+    setShowBulkDialog(false);
+    setBulkAction({ type: '', value: 0, category: 'all' });
+  };
+
+  const columns = [
+    {
+      header: 'المنتج',
+      cell: (row) => (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
+            {row.image_url ? (
+              <img src={row.image_url} alt={row.name} className="w-full h-full object-cover rounded-lg" />
+            ) : (
+              <Package className="w-5 h-5 text-slate-400" />
+            )}
+          </div>
+          <div>
+            <p className="font-medium text-slate-800">{row.name}</p>
+            <p className="text-xs text-slate-400">{getCategoryName(row.category_id)}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: 'السعر',
+      cell: (row) => (
+        <span className="font-semibold text-slate-800">
+          {row.base_price?.toFixed(2)} ر.س
+        </span>
+      ),
+    },
+    {
+      header: 'المخزون',
+      cell: (row) => (
+        <Badge variant={row.stock_quantity > 10 ? 'secondary' : 'destructive'} 
+          className={cn(
+            row.stock_quantity > 10 
+              ? 'bg-emerald-100 text-emerald-700' 
+              : 'bg-red-100 text-red-700'
+          )}>
+          {row.stock_quantity} وحدة
+        </Badge>
+      ),
+    },
+    {
+      header: 'الحالة',
+      cell: (row) => (
+        <Badge variant="outline" className={cn(
+          row.is_active 
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+            : 'bg-slate-50 text-slate-500'
+        )}>
+          {row.is_active ? 'متاح' : 'مخفي'}
+        </Badge>
+      ),
+    },
+    {
+      header: 'المتغيرات',
+      cell: (row) => {
+        const count = getProductVariants(row.id).length;
+        return (
+          <span className="text-sm text-slate-500">
+            {count > 0 ? `${count} متغيرات` : '-'}
+          </span>
+        );
+      },
+    },
+    {
+      header: '',
+      cell: (row) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreVertical className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => {
+              setEditingProduct(row);
+              setShowDialog(true);
+            }}>
+              <Pencil className="w-4 h-4 ml-2" />
+              تعديل
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => {
+              updateMutation.mutate({ 
+                id: row.id, 
+                data: { is_active: !row.is_active } 
+              });
+            }}>
+              {row.is_active ? (
+                <>
+                  <EyeOff className="w-4 h-4 ml-2" />
+                  إخفاء
+                </>
+              ) : (
+                <>
+                  <Eye className="w-4 h-4 ml-2" />
+                  إظهار
+                </>
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              className="text-red-600"
+              onClick={() => deleteMutation.mutate(row.id)}
+            >
+              <Trash2 className="w-4 h-4 ml-2" />
+              حذف
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="إدارة المنتجات"
+        description={`${products.length} منتج`}
+        action={() => {
+          setEditingProduct(null);
+          setShowDialog(true);
+        }}
+        actionLabel="إضافة منتج"
+      >
+        <Button 
+          variant="outline" 
+          onClick={() => setShowBulkDialog(true)}
+          className="gap-2"
+        >
+          <Percent className="w-4 h-4" />
+          تعديل الأسعار
+        </Button>
+      </PageHeader>
+
+      {/* Filters */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input
+                placeholder="بحث عن منتج..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pr-10"
+              />
+            </div>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="الفئة" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">جميع الفئات</SelectItem>
+                {categories.map(cat => (
+                  <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <DataTable 
+        columns={columns}
+        data={filteredProducts}
+        isLoading={isLoading}
+        emptyMessage="لا توجد منتجات"
+      />
+
+      {/* Add/Edit Dialog */}
+      <Sheet open={showDialog} onOpenChange={setShowDialog}>
+        <SheetContent side="left" className="w-full sm:max-w-lg" dir="rtl">
+          <SheetHeader>
+            <SheetTitle>
+              {editingProduct ? 'تعديل المنتج' : 'إضافة منتج جديد'}
+            </SheetTitle>
+          </SheetHeader>
+          <form onSubmit={handleSubmit} className="space-y-4 mt-6">
+            <div className="space-y-2">
+              <Label htmlFor="name">اسم المنتج</Label>
+              <Input 
+                id="name" 
+                name="name" 
+                defaultValue={editingProduct?.name}
+                required 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">الوصف</Label>
+              <Textarea 
+                id="description" 
+                name="description"
+                defaultValue={editingProduct?.description}
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="base_price">السعر</Label>
+                <Input 
+                  id="base_price" 
+                  name="base_price" 
+                  type="number"
+                  step="0.01"
+                  defaultValue={editingProduct?.base_price}
+                  required 
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="stock_quantity">المخزون</Label>
+                <Input 
+                  id="stock_quantity" 
+                  name="stock_quantity" 
+                  type="number"
+                  defaultValue={editingProduct?.stock_quantity || 0}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="category_id">الفئة</Label>
+              <Select name="category_id" defaultValue={editingProduct?.category_id}>
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر الفئة" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <SheetFooter className="mt-6">
+              <Button type="submit" className="w-full">
+                {editingProduct ? 'حفظ التغييرات' : 'إضافة المنتج'}
+              </Button>
+            </SheetFooter>
+          </form>
+        </SheetContent>
+      </Sheet>
+
+      {/* Bulk Price Update Dialog */}
+      <Dialog open={showBulkDialog} onOpenChange={setShowBulkDialog}>
+        <DialogContent dir="rtl">
+          <DialogHeader>
+            <DialogTitle>تعديل الأسعار بالجملة</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>الفئة المستهدفة</Label>
+              <Select 
+                value={bulkAction.category} 
+                onValueChange={(v) => setBulkAction({...bulkAction, category: v})}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">جميع المنتجات</SelectItem>
+                  {categories.map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>نوع التعديل</Label>
+              <Select 
+                value={bulkAction.type} 
+                onValueChange={(v) => setBulkAction({...bulkAction, type: v})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر نوع التعديل" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percentage">نسبة مئوية (%)</SelectItem>
+                  <SelectItem value="fixed">قيمة ثابتة (ر.س)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>القيمة {bulkAction.type === 'percentage' ? '(+ للزيادة، - للخصم)' : ''}</Label>
+              <Input 
+                type="number"
+                value={bulkAction.value}
+                onChange={(e) => setBulkAction({...bulkAction, value: parseFloat(e.target.value) || 0})}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkDialog(false)}>
+              إلغاء
+            </Button>
+            <Button onClick={handleBulkPriceUpdate} disabled={!bulkAction.type}>
+              تطبيق التعديل
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

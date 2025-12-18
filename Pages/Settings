@@ -1,0 +1,304 @@
+import React, { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { 
+  Settings as SettingsIcon,
+  DollarSign,
+  Truck,
+  Clock,
+  Palette,
+  Save,
+  Globe
+} from 'lucide-react';
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+const defaultSettings = {
+  currency: 'SYP',
+  currency_symbol: 'ل.س',
+  tax_rate: '15',
+  delivery_fee: '10',
+  min_order_amount: '50',
+  working_hours_start: '09:00',
+  working_hours_end: '23:00',
+  order_timeout_minutes: '30',
+  auto_assign_drivers: 'true',
+  enable_notifications: 'true',
+  maintenance_mode: 'false',
+};
+
+export default function Settings() {
+  const [settings, setSettings] = useState(defaultSettings);
+  const [hasChanges, setHasChanges] = useState(false);
+  const queryClient = useQueryClient();
+
+  const { data: savedSettings = [], isLoading } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => base44.entities.Setting.list(),
+  });
+
+  useEffect(() => {
+    if (savedSettings.length > 0) {
+      const settingsMap = {};
+      savedSettings.forEach(s => {
+        settingsMap[s.key] = s.value;
+      });
+      setSettings(prev => ({ ...prev, ...settingsMap }));
+    }
+  }, [savedSettings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (settingsToSave) => {
+      for (const [key, value] of Object.entries(settingsToSave)) {
+        const existing = savedSettings.find(s => s.key === key);
+        if (existing) {
+          await base44.entities.Setting.update(existing.id, { value: String(value) });
+        } else {
+          await base44.entities.Setting.create({ 
+            key, 
+            value: String(value),
+            type: typeof value === 'boolean' ? 'boolean' : 
+                  !isNaN(value) ? 'number' : 'string',
+            category: 'general'
+          });
+        }
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['settings']);
+      toast.success('تم حفظ الإعدادات بنجاح');
+      setHasChanges(false);
+    },
+  });
+
+  const handleChange = (key, value) => {
+    setSettings(prev => ({ ...prev, [key]: value }));
+    setHasChanges(true);
+  };
+
+  const handleSave = () => {
+    saveMutation.mutate(settings);
+  };
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="الإعدادات"
+        description="إعدادات النظام العامة"
+      >
+        <Button 
+          onClick={handleSave} 
+          disabled={!hasChanges || saveMutation.isPending}
+          className="gap-2"
+        >
+          <Save className="w-4 h-4" />
+          حفظ التغييرات
+        </Button>
+      </PageHeader>
+
+      <Tabs defaultValue="general" className="space-y-6">
+        <TabsList className="bg-slate-100">
+          <TabsTrigger value="general">عام</TabsTrigger>
+          <TabsTrigger value="payment">الدفع</TabsTrigger>
+          <TabsTrigger value="delivery">التوصيل</TabsTrigger>
+          <TabsTrigger value="display">العرض</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general" className="space-y-6">
+          {/* Working Hours */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Clock className="w-5 h-5 text-amber-500" />
+                ساعات العمل
+              </CardTitle>
+              <CardDescription>تحديد أوقات عمل المنصة</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>وقت البداية</Label>
+                  <Input 
+                    type="time"
+                    value={settings.working_hours_start}
+                    onChange={(e) => handleChange('working_hours_start', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>وقت النهاية</Label>
+                  <Input 
+                    type="time"
+                    value={settings.working_hours_end}
+                    onChange={(e) => handleChange('working_hours_end', e.target.value)}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* System Settings */}
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <SettingsIcon className="w-5 h-5 text-slate-500" />
+                إعدادات النظام
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">تفعيل الإشعارات</p>
+                  <p className="text-sm text-slate-500">إرسال إشعارات تلقائية</p>
+                </div>
+                <Switch
+                  checked={settings.enable_notifications === 'true'}
+                  onCheckedChange={(checked) => handleChange('enable_notifications', String(checked))}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">وضع الصيانة</p>
+                  <p className="text-sm text-slate-500">إيقاف المنصة مؤقتاً</p>
+                </div>
+                <Switch
+                  checked={settings.maintenance_mode === 'true'}
+                  onCheckedChange={(checked) => handleChange('maintenance_mode', String(checked))}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="payment" className="space-y-6">
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-emerald-500" />
+                إعدادات الدفع
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>العملة</Label>
+                  <Select 
+                    value={settings.currency}
+                    onValueChange={(v) => handleChange('currency', v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="SYP">ليرة سورية</SelectItem>
+                      <SelectItem value="SAR">ريال سعودي</SelectItem>
+                      <SelectItem value="AED">درهم إماراتي</SelectItem>
+                      <SelectItem value="KWD">دينار كويتي</SelectItem>
+                      <SelectItem value="USD">دولار أمريكي</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>رمز العملة</Label>
+                  <Input 
+                    value={settings.currency_symbol}
+                    onChange={(e) => handleChange('currency_symbol', e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>نسبة الضريبة (%)</Label>
+                  <Input 
+                    type="number"
+                    value={settings.tax_rate}
+                    onChange={(e) => handleChange('tax_rate', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>الحد الأدنى للطلب</Label>
+                  <Input 
+                    type="number"
+                    value={settings.min_order_amount}
+                    onChange={(e) => handleChange('min_order_amount', e.target.value)}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="delivery" className="space-y-6">
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Truck className="w-5 h-5 text-cyan-500" />
+                إعدادات التوصيل
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>رسوم التوصيل</Label>
+                  <Input 
+                    type="number"
+                    value={settings.delivery_fee}
+                    onChange={(e) => handleChange('delivery_fee', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>مهلة الطلب (دقيقة)</Label>
+                  <Input 
+                    type="number"
+                    value={settings.order_timeout_minutes}
+                    onChange={(e) => handleChange('order_timeout_minutes', e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-medium">التعيين التلقائي للسائقين</p>
+                  <p className="text-sm text-slate-500">تعيين السائقين تلقائياً للطلبات</p>
+                </div>
+                <Switch
+                  checked={settings.auto_assign_drivers === 'true'}
+                  onCheckedChange={(checked) => handleChange('auto_assign_drivers', String(checked))}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="display" className="space-y-6">
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Palette className="w-5 h-5 text-purple-500" />
+                إعدادات العرض
+              </CardTitle>
+              <CardDescription>تخصيص مظهر التطبيق</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-slate-500">
+                إعدادات العرض قادمة قريباً...
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

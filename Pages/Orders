@@ -1,0 +1,353 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import StatusBadge from '../components/shared/StatusBadge';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { 
+  Search, 
+  Filter, 
+  MapPin, 
+  Phone, 
+  User, 
+  Clock,
+  MoreVertical,
+  Truck,
+  CheckCircle2,
+  XCircle,
+  Package,
+  ChefHat
+} from 'lucide-react';
+import { format } from 'date-fns';
+import { ar } from 'date-fns/locale';
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+
+const statusFlow = [
+  { value: 'pending', label: 'بانتظار التأكيد', icon: Clock },
+  { value: 'confirmed', label: 'مؤكد', icon: CheckCircle2 },
+  { value: 'preparing', label: 'قيد التحضير', icon: ChefHat },
+  { value: 'ready', label: 'جاهز للتوصيل', icon: Package },
+  { value: 'delivering', label: 'في الطريق', icon: Truck },
+  { value: 'delivered', label: 'تم التوصيل', icon: CheckCircle2 },
+  { value: 'cancelled', label: 'ملغي', icon: XCircle },
+];
+
+export default function Orders() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const queryClient = useQueryClient();
+
+  const { data: orders = [], isLoading } = useQuery({
+    queryKey: ['orders'],
+    queryFn: () => base44.entities.Order.list('-created_date'),
+  });
+
+  const { data: orderItems = [] } = useQuery({
+    queryKey: ['orderItems'],
+    queryFn: () => base44.entities.OrderItem.list(),
+  });
+
+  const { data: drivers = [] } = useQuery({
+    queryKey: ['drivers'],
+    queryFn: () => base44.entities.Driver.filter({ is_active: true }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Order.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['orders']);
+      toast.success('تم تحديث الطلب بنجاح');
+    },
+  });
+
+  const filteredOrders = orders.filter(order => {
+    const matchesSearch = 
+      order.customer_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      order.order_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      order.customer_phone?.includes(searchQuery);
+    const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  const getOrderItems = (orderId) => {
+    return orderItems.filter(item => item.order_id === orderId);
+  };
+
+  const handleStatusChange = (orderId, newStatus) => {
+    updateMutation.mutate({ id: orderId, data: { status: newStatus } });
+  };
+
+  const handleAssignDriver = (orderId, driverId) => {
+    updateMutation.mutate({ id: orderId, data: { driver_id: driverId } });
+  };
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="إدارة الطلبات"
+        description="متابعة وإدارة جميع الطلبات"
+      />
+
+      {/* Filters */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Input
+                placeholder="بحث بالاسم، رقم الطلب، أو الهاتف..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pr-10"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-48">
+                <Filter className="w-4 h-4 ml-2" />
+                <SelectValue placeholder="حالة الطلب" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">جميع الحالات</SelectItem>
+                {statusFlow.map(status => (
+                  <SelectItem key={status.value} value={status.value}>
+                    {status.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Orders Grid */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[...Array(6)].map((_, i) => (
+            <Card key={i} className="border-0 shadow-sm animate-pulse">
+              <CardContent className="p-4 space-y-3">
+                <div className="h-6 bg-slate-200 rounded w-1/3" />
+                <div className="h-4 bg-slate-200 rounded w-2/3" />
+                <div className="h-4 bg-slate-200 rounded w-1/2" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : filteredOrders.length === 0 ? (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="py-16 text-center text-slate-400">
+            <Package className="w-12 h-12 mx-auto mb-3 opacity-50" />
+            <p>لا توجد طلبات</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredOrders.map(order => (
+            <Card 
+              key={order.id} 
+              className="border-0 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => setSelectedOrder(order)}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-800">
+                        #{order.order_number || order.id?.slice(-6)}
+                      </span>
+                      <StatusBadge status={order.status} />
+                    </div>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {order.created_date && format(new Date(order.created_date), 'hh:mm a', { locale: ar })}
+                    </p>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild onClick={e => e.stopPropagation()}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <MoreVertical className="w-4 h-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {statusFlow.filter(s => s.value !== order.status).map(status => (
+                        <DropdownMenuItem 
+                          key={status.value}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleStatusChange(order.id, status.value);
+                          }}
+                        >
+                          <status.icon className="w-4 h-4 ml-2" />
+                          {status.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <User className="w-4 h-4 text-slate-400" />
+                    <span>{order.customer_name}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <Phone className="w-4 h-4 text-slate-400" />
+                    <span dir="ltr">{order.customer_phone}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-600">
+                    <MapPin className="w-4 h-4 text-slate-400" />
+                    <span className="truncate">{order.customer_address || 'غير محدد'}</span>
+                  </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-lg font-bold text-slate-800">
+                    {order.total_amount?.toFixed(2) || '0.00'} ل.س
+                  </span>
+                  {order.driver_id ? (
+                    <Badge variant="secondary" className="bg-cyan-50 text-cyan-700">
+                      <Truck className="w-3 h-3 ml-1" />
+                      تم التعيين
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-slate-500">
+                      بدون سائق
+                    </Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Order Details Dialog */}
+      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
+        <DialogContent className="max-w-lg" dir="rtl">
+          <DialogHeader>
+            <DialogTitle>
+              تفاصيل الطلب #{selectedOrder?.order_number || selectedOrder?.id?.slice(-6)}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedOrder && (
+            <div className="space-y-6">
+              {/* Customer Info */}
+              <div className="space-y-3">
+                <h4 className="font-semibold text-slate-800">معلومات العميل</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-slate-400" />
+                    <span>{selectedOrder.customer_name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-4 h-4 text-slate-400" />
+                    <span dir="ltr">{selectedOrder.customer_phone}</span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 text-sm">
+                  <MapPin className="w-4 h-4 text-slate-400 mt-0.5" />
+                  <span>{selectedOrder.customer_address || 'غير محدد'}</span>
+                </div>
+              </div>
+
+              {/* Order Items */}
+              <div className="space-y-3">
+                <h4 className="font-semibold text-slate-800">المنتجات</h4>
+                <div className="space-y-2">
+                  {getOrderItems(selectedOrder.id).map((item, i) => (
+                    <div key={i} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                      <div>
+                        <span className="font-medium">{item.product_name}</span>
+                        {item.variant_name && (
+                          <span className="text-sm text-slate-500 mr-2">({item.variant_name})</span>
+                        )}
+                      </div>
+                      <div className="text-sm">
+                        <span className="text-slate-500">{item.quantity} × </span>
+                        <span className="font-medium">{item.unit_price?.toFixed(2)} ل.س</span>
+                      </div>
+                    </div>
+                  ))}
+                  {getOrderItems(selectedOrder.id).length === 0 && (
+                    <p className="text-sm text-slate-400 text-center py-4">لا توجد منتجات</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Status & Driver */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-600">حالة الطلب</label>
+                  <Select 
+                    value={selectedOrder.status} 
+                    onValueChange={(value) => handleStatusChange(selectedOrder.id, value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {statusFlow.map(status => (
+                        <SelectItem key={status.value} value={status.value}>
+                          {status.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-600">السائق</label>
+                  <Select 
+                    value={selectedOrder.driver_id || ''} 
+                    onValueChange={(value) => handleAssignDriver(selectedOrder.id, value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="اختر السائق" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {drivers.filter(d => d.is_online).map(driver => (
+                        <SelectItem key={driver.id} value={driver.id}>
+                          {driver.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Total */}
+              <div className="flex items-center justify-between pt-4 border-t">
+                <span className="font-semibold text-slate-600">المجموع</span>
+                <span className="text-2xl font-bold text-slate-800">
+                  {selectedOrder.total_amount?.toFixed(2) || '0.00'} ل.س
+                </span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

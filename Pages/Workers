@@ -1,0 +1,318 @@
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { base44 } from '@/api/base44Client';
+import PageHeader from '../components/shared/PageHeader';
+import DataTable from '../components/shared/DataTable';
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { 
+  Search, 
+  MoreVertical, 
+  Pencil, 
+  Trash2, 
+  Users,
+  Phone,
+  Wrench,
+  Building2
+} from 'lucide-react';
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+export default function Workers() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSheet, setShowSheet] = useState(false);
+  const [editingWorker, setEditingWorker] = useState(null);
+  const queryClient = useQueryClient();
+
+  const { data: workers = [], isLoading } = useQuery({
+    queryKey: ['workers'],
+    queryFn: () => base44.entities.Worker.list('-created_date'),
+  });
+
+  const { data: branches = [] } = useQuery({
+    queryKey: ['branches'],
+    queryFn: () => base44.entities.Branch.list(),
+  });
+
+  const { data: serviceRequests = [] } = useQuery({
+    queryKey: ['serviceRequests'],
+    queryFn: () => base44.entities.ServiceRequest.list(),
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data) => base44.entities.Worker.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['workers']);
+      toast.success('تم إضافة العامل بنجاح');
+      setShowSheet(false);
+      setEditingWorker(null);
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.Worker.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['workers']);
+      toast.success('تم تحديث بيانات العامل');
+      setShowSheet(false);
+      setEditingWorker(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id) => base44.entities.Worker.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['workers']);
+      toast.success('تم حذف العامل');
+    },
+  });
+
+  const getBranchName = (branchId) => {
+    return branches.find(b => b.id === branchId)?.name || '-';
+  };
+
+  const getWorkerTasks = (workerId) => {
+    return serviceRequests.filter(r => r.worker_id === workerId);
+  };
+
+  const filteredWorkers = workers.filter(worker => {
+    return (
+      worker.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      worker.phone?.includes(searchQuery) ||
+      worker.specialization?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = {
+      name: formData.get('name'),
+      phone: formData.get('phone'),
+      specialization: formData.get('specialization'),
+      branch_id: formData.get('branch_id') || null,
+      is_active: editingWorker?.is_active ?? true,
+    };
+
+    if (editingWorker) {
+      updateMutation.mutate({ id: editingWorker.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const columns = [
+    {
+      header: 'العامل',
+      cell: (row) => (
+        <div className="flex items-center gap-3">
+          <Avatar className="h-10 w-10">
+            <AvatarFallback className="bg-lime-100 text-lime-700 font-semibold">
+              {row.name?.charAt(0) || '?'}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <p className="font-medium text-slate-800">{row.name}</p>
+            <p className="text-xs text-slate-400" dir="ltr">{row.phone}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: 'التخصص',
+      cell: (row) => (
+        <div className="flex items-center gap-2">
+          <Wrench className="w-4 h-4 text-slate-400" />
+          <span className="text-sm">{row.specialization || '-'}</span>
+        </div>
+      ),
+    },
+    {
+      header: 'الفرع',
+      cell: (row) => (
+        <div className="flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-slate-400" />
+          <span className="text-sm">{getBranchName(row.branch_id)}</span>
+        </div>
+      ),
+    },
+    {
+      header: 'المهام',
+      cell: (row) => {
+        const tasks = getWorkerTasks(row.id);
+        const completed = tasks.filter(t => t.status === 'completed').length;
+        return (
+          <div className="text-sm">
+            <span className="font-medium">{completed}</span>
+            <span className="text-slate-400"> / {tasks.length} مهمة</span>
+          </div>
+        );
+      },
+    },
+    {
+      header: 'الحالة',
+      cell: (row) => (
+        <Badge variant="outline" className={cn(
+          row.is_active 
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+            : 'bg-red-50 text-red-600'
+        )}>
+          {row.is_active ? 'نشط' : 'معطل'}
+        </Badge>
+      ),
+    },
+    {
+      header: '',
+      cell: (row) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreVertical className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => {
+              setEditingWorker(row);
+              setShowSheet(true);
+            }}>
+              <Pencil className="w-4 h-4 ml-2" />
+              تعديل
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => {
+              updateMutation.mutate({ 
+                id: row.id, 
+                data: { is_active: !row.is_active } 
+              });
+            }}>
+              {row.is_active ? 'تعطيل' : 'تفعيل'}
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              className="text-red-600"
+              onClick={() => deleteMutation.mutate(row.id)}
+            >
+              <Trash2 className="w-4 h-4 ml-2" />
+              حذف
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader 
+        title="العمال"
+        description={`${workers.length} عامل`}
+        action={() => {
+          setEditingWorker(null);
+          setShowSheet(true);
+        }}
+        actionLabel="إضافة عامل"
+      />
+
+      {/* Search */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4">
+          <div className="relative">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Input
+              placeholder="بحث بالاسم، الهاتف، أو التخصص..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pr-10"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <DataTable 
+        columns={columns}
+        data={filteredWorkers}
+        isLoading={isLoading}
+        emptyMessage="لا يوجد عمال"
+      />
+
+      {/* Add/Edit Sheet */}
+      <Sheet open={showSheet} onOpenChange={setShowSheet}>
+        <SheetContent side="left" className="w-full sm:max-w-lg" dir="rtl">
+          <SheetHeader>
+            <SheetTitle>
+              {editingWorker ? 'تعديل بيانات العامل' : 'إضافة عامل جديد'}
+            </SheetTitle>
+          </SheetHeader>
+          <form onSubmit={handleSubmit} className="space-y-4 mt-6">
+            <div className="space-y-2">
+              <Label htmlFor="name">الاسم</Label>
+              <Input 
+                id="name" 
+                name="name" 
+                defaultValue={editingWorker?.name}
+                required 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">رقم الهاتف</Label>
+              <Input 
+                id="phone" 
+                name="phone"
+                defaultValue={editingWorker?.phone}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="specialization">التخصص</Label>
+              <Input 
+                id="specialization" 
+                name="specialization"
+                defaultValue={editingWorker?.specialization}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="branch_id">الفرع</Label>
+              <Select name="branch_id" defaultValue={editingWorker?.branch_id}>
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر الفرع" />
+                </SelectTrigger>
+                <SelectContent>
+                  {branches.map(b => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <SheetFooter className="mt-6">
+              <Button type="submit" className="w-full">
+                {editingWorker ? 'حفظ التغييرات' : 'إضافة العامل'}
+              </Button>
+            </SheetFooter>
+          </form>
+        </SheetContent>
+      </Sheet>
+    </div>
+  );
+}

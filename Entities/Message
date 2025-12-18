@@ -1,0 +1,43 @@
+{
+  "name": "Message",
+  "type": "object",
+  "properties": {
+    "sender_type": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "customer",
+        "driver"
+      ],
+      "description": "\u0646\u0648\u0639 \u0627\u0644\u0645\u0631\u0633\u0644"
+    },
+    "sender_id": {
+      "type": "string",
+      "description": "\u0645\u0639\u0631\u0641 \u0627\u0644\u0645\u0631\u0633\u0644"
+    },
+    "receiver_type": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "customer",
+        "driver"
+      ],
+      "description": "\u0646\u0648\u0639 \u0627\u0644\u0645\u0633\u062a\u0644\u0645"
+    },
+    "receiver_id": {
+      "type": "string",
+      "description": "\u0645\u0639\u0631\u0641 \u0627\u0644\u0645\u0633\u062a\u0644\u0645"
+    },
+    "content": {
+      "type": "string",
+      "description": "\u0645\u062d\u062a\u0648\u0649 \u0627\u0644\u0631\u0633\u0627\u0644\u0629"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "content"
+  ]
+}
